@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import os, requests
 import time
 from mdc import MDC
 from tqdm import tqdm
@@ -6,7 +7,7 @@ from logconf import log_setup
 import logging
 from typing import Literal, Any, get_args
 import argparse
-from openai import OpenAI, BadRequestError
+from openai import OpenAI, BadRequestError, RateLimitError
 import datasets
 from datasets import Dataset, concatenate_datasets
 import pyarrow as pa
@@ -35,8 +36,30 @@ logger = logging.getLogger("raft")
 DocType = Literal["api", "pdf", "json", "txt"]
 docTypes = list(get_args(DocType))
 
-SystemPromptKey = Literal["gpt", "llama"]
+SystemPromptKey = Literal["gpt", "llama", "llama_vi"]
 systemPromptKeys = list(get_args(SystemPromptKey))
+
+def get_chunks_from_rag() -> list[str]:
+    """
+    Retrieves the chunks from the RAG dataset.
+    """
+    chunks = []
+
+    logger.info(f"Retrieving chunks from RAG API")
+    
+    flask_api_url = os.getenv("RAG_API_URL") + "/get_chunks"
+    
+    try:
+        response = requests.get(flask_api_url)
+        chunks = response.json()
+
+        if not chunks:
+            raise ValueError("No chunks retrieved from RAG API")
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error retrieving chunks from RAG API: {e}")
+
+    return chunks
 
 def get_args() -> argparse.Namespace:
     """
@@ -197,6 +220,27 @@ build_qa_messages = {
                 """ % (x)},
             {"role": "system", "content": "The questions should be able to be answered in a few words or less. Include only the questions in your response."},
             {"role": "user", "content": str(chunk)}
+        ],
+    "llama_vi": lambda chunk, x : [
+            {"role": "system", "content":
+                """Bạn là một trình tạo câu hỏi tổng hợp.
+
+                Hướng dẫn:
+                - Dựa trên một đoạn ngữ cảnh về một hoặc nhiều chủ đề, hãy tạo ra %s câu hỏi ví dụ mà người dùng có thể hỏi.
+                - Các câu hỏi chỉ nên có thể trả lời được bằng thông tin từ đoạn ngữ cảnh.
+                - Tạo một câu hỏi mỗi dòng.
+                - Chỉ tạo câu hỏi.
+                - Các câu hỏi nên ngắn gọn.
+
+                Đây là một vài ví dụ:
+                Ngữ cảnh: Một đoạn văn trên Wikipedia về Hoa Kỳ,
+                Câu hỏi: Hoa Kỳ có bao nhiêu bang?
+
+                Ngữ cảnh: Một đoạn văn trên Wikipedia về dơi ma cà rồng,
+                Câu hỏi: Có những loài dơi ma cà rồng nào khác nhau?
+                """ % (x)},
+            {"role": "system", "content": "Chỉ bao gồm các câu hỏi trong phản hồi của bạn."},
+            {"role": "user", "content": str(chunk)}
         ]
 }
 
@@ -216,9 +260,15 @@ def generate_instructions_gen(chat_completer: ChatCompleter, chunk: Any, x: int 
             logger.warning(f"Got content filter error, skipping chunk: {e.message}")
             return []
         raise e
+    except RateLimitError as e:
+        logger.warning(f"Got rate limit error, retrying")
+        time.sleep(10)
+        return generate_instructions_gen(chat_completer, chunk, x, model, prompt_key)
 
     content = response.choices[0].message.content
     queries = content.split('\n') if content else []
+    for q in queries:
+        print(q)
     #queries = [strip_str(q) for q in queries]
     queries = [q for q in queries if any(c.isalpha() for c in q)]
 
@@ -287,6 +337,32 @@ prompt_templates = {
         The name of the movement is explicitly mentioned in the same sentence as the "Free Speech Movement."
         Therefore, based on the context provided, we can conclude that the arrest of Jack Weinberg in Sproul Plaza gave rise to the Free Speech Movement.
         <ANSWER>: Free Speech Movement
+    """,
+    "llama_vi": """
+        Câu hỏi: {question}
+        Ngữ cảnh: {context}
+
+        Trả lời câu hỏi này bằng cách sử dụng thông tin được cung cấp trong ngữ cảnh trên.
+
+        Hướng dẫn:
+        - Cung cấp lý giải từng bước về cách trả lời câu hỏi.
+        - Giải thích những phần nào của ngữ cảnh có ý nghĩa và tại sao.
+        - Sao chép và dán các câu liên quan từ ngữ cảnh trong ##begin_quote## và ##end_quote##.
+        - Cung cấp một bản tóm tắt về cách bạn đạt được câu trả lời.
+        - Kết thúc phản hồi của bạn bằng câu trả lời cuối cùng theo dạng <ANSWER>: $answer, câu trả lời nên ngắn gọn.
+        - Bạn PHẢI bắt đầu câu trả lời cuối cùng bằng thẻ "<ANSWER>:".
+
+        Đây là một vài ví dụ:
+
+        Câu hỏi ví dụ: Phong trào nào đã được khơi nguồn từ vụ bắt giữ Jack Weinberg tại Sproul Plaza?
+        Câu trả lời ví dụ: Để trả lời câu hỏi, chúng ta cần xác định phong trào đã được khơi nguồn từ vụ bắt giữ Jack Weinberg tại Sproul Plaza.
+        Ngữ cảnh được cung cấp cho chúng ta thông tin cần thiết để xác định điều này.
+        Đầu tiên, chúng ta tìm kiếm phần ngữ cảnh đề cập trực tiếp đến vụ bắt giữ Jack Weinberg.
+        Chúng ta tìm thấy nó trong câu: ##begin_quote##Vụ bắt giữ Jack Weinberg, một cựu sinh viên Berkeley và chủ tịch của Campus CORE, tại Sproul Plaza, đã thúc đẩy một loạt các hành động phản đối chính thức và bất tuân dân sự do sinh viên lãnh đạo, mà cuối cùng đã làm nảy sinh Phong trào Tự do Ngôn luận##end_quote##.
+        Từ câu này, chúng ta hiểu rằng vụ bắt giữ Jack Weinberg đã dẫn đến các hành động do sinh viên lãnh đạo, sau đó làm nảy sinh một phong trào cụ thể.
+        Tên của phong trào được đề cập rõ ràng trong cùng câu là "Phong trào Tự do Ngôn luận".
+        Do đó, dựa trên ngữ cảnh được cung cấp, chúng ta có thể kết luận rằng phong trào được khơi nguồn từ vụ bắt giữ Jack Weinberg tại Sproul Plaza là Phong trào Tự do Ngôn luận.
+        <ANSWER>: Phong trào Tự do Ngôn luận
     """
     }
 
@@ -298,7 +374,7 @@ def encode_question_gen(question: str, chunk: Any, prompt_key : str = "gpt") -> 
     prompts = []
 
     prompt = prompt_templates[prompt_key].format(question=question, context=str(chunk))
-    prompts.append({"role": "system", "content": "You are a helpful question answerer who can provide an answer given a question and relevant context."})
+    prompts.append({"role": "system", "content": "Bạn là một nhân viên hỗ trợ cho kỳ thi VSTEP, bạn trả lời câu hỏi của người dùng bằng thông tin được cung cấp."})
     prompts.append({"role": "user", "content": prompt})
     return prompts
 
@@ -307,13 +383,19 @@ def generate_label(chat_completer: ChatCompleter, question: str, context: Any, d
     Generates the label / answer to `question` using `context` and GPT-4.
     """
     question = encode_question(question, context) if doctype == "api" else encode_question_gen(question, context, prompt_key)
-    response = chat_completer(
-        model=model,
-        messages=question,
-        n=1,
-        temperature=0,
-        max_tokens=512,
-    )
+    try:
+        response = chat_completer(
+            model=model,
+            messages=question,
+            n=1,
+            temperature=0,
+            max_tokens=512,
+        )
+    except RateLimitError as e:
+        logger.warning(f"Got rate limit error, retrying")
+        time.sleep(10)
+        return generate_label(chat_completer, question, context, doctype, model=model, prompt_key=prompt_key)
+
     response = response.choices[0].message.content
     return response
 
@@ -395,7 +477,8 @@ def build_or_load_chunks(
         chunks = chunks_ds['chunk']
 
     if not chunks:
-        chunks = get_chunks(datapath, doctype, CHUNK_SIZE, OPENAPI_API_KEY, model=embedding_model)
+        # chunks = get_chunks(datapath, doctype, CHUNK_SIZE, OPENAPI_API_KEY, model=embedding_model)
+        chunks = get_chunks_from_rag()
 
     if not chunks_ds:
         chunks_table = pa.table({ "chunk": chunks })

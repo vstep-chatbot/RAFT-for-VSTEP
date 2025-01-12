@@ -18,7 +18,7 @@ inputDatasetTypes = list(get_args(InputDatasetType))
 DatasetFormat = Literal["hf", "completion", "chat", "eval"]
 datasetFormats = list(get_args(DatasetFormat))
 
-default_chat_system_prompt = "The following is a conversation with an AI assistant. The assistant is helpful, clever, friendly and gives concise and accurate answers."
+default_chat_system_prompt = "Sau đây là một cuộc trò chuyện với một trợ lý AI. Trợ lý này hữu ích, thông minh, thân thiện và trả lời súc tích, chuẩn xác."
 
 def get_args() -> argparse.Namespace:
     """
