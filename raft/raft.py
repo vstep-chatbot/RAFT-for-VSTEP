@@ -221,9 +221,10 @@ build_qa_messages = {
             {"role": "system", "content": "The questions should be able to be answered in a few words or less. Include only the questions in your response."},
             {"role": "user", "content": str(chunk)}
         ],
-    "llama_vi": lambda chunk, x : [
-            {"role": "system", "content":
-                """Bạn là một trình tạo câu hỏi tổng hợp.
+    "llama_vi": lambda chunk, x: [
+        {
+            "role": "system",
+            "content": """Bạn là một trình tạo dữ liệu tổng hợp.
 
                 Hướng dẫn:
                 - Dựa trên một đoạn ngữ cảnh về một hoặc nhiều chủ đề, hãy tạo ra %s câu hỏi ví dụ mà người dùng có thể hỏi.
@@ -238,10 +239,12 @@ build_qa_messages = {
 
                 Ngữ cảnh: Một đoạn văn trên Wikipedia về dơi ma cà rồng,
                 Câu hỏi: Có những loài dơi ma cà rồng nào khác nhau?
-                """ % (x)},
-            {"role": "system", "content": "Chỉ bao gồm các câu hỏi trong phản hồi của bạn."},
-            {"role": "user", "content": str(chunk)}
-        ]
+                """
+            % (x),
+        },
+        {"role": "system", "content": "Chỉ bao gồm các câu hỏi trong phản hồi của bạn."},
+        {"role": "user", "content": str(chunk)},
+    ],
 }
 
 def generate_instructions_gen(chat_completer: ChatCompleter, chunk: Any, x: int = 5, model: str = None, prompt_key : str = "gpt") -> list[str]:
@@ -349,8 +352,9 @@ prompt_templates = {
         - Giải thích những phần nào của ngữ cảnh có ý nghĩa và tại sao.
         - Sao chép và dán các câu liên quan từ ngữ cảnh trong ##begin_quote## và ##end_quote##.
         - Cung cấp một bản tóm tắt về cách bạn đạt được câu trả lời.
-        - Kết thúc phản hồi của bạn bằng câu trả lời cuối cùng theo dạng <ANSWER>: $answer, câu trả lời nên ngắn gọn.
+        - Kết thúc phản hồi của bạn bằng câu trả lời cuối cùng theo dạng <ANSWER>: $answer.
         - Bạn PHẢI bắt đầu câu trả lời cuối cùng bằng thẻ "<ANSWER>:".
+        - Câu trả lời cuối cùng phải thân thiện, dễ hiểu với người dùng, mời người dùng hỏi thêm.
 
         Đây là một vài ví dụ:
 
@@ -362,8 +366,8 @@ prompt_templates = {
         Từ câu này, chúng ta hiểu rằng vụ bắt giữ Jack Weinberg đã dẫn đến các hành động do sinh viên lãnh đạo, sau đó làm nảy sinh một phong trào cụ thể.
         Tên của phong trào được đề cập rõ ràng trong cùng câu là "Phong trào Tự do Ngôn luận".
         Do đó, dựa trên ngữ cảnh được cung cấp, chúng ta có thể kết luận rằng phong trào được khơi nguồn từ vụ bắt giữ Jack Weinberg tại Sproul Plaza là Phong trào Tự do Ngôn luận.
-        <ANSWER>: Phong trào Tự do Ngôn luận
-    """
+        <ANSWER>: Vụ bắt giữ Jack Weinberg tại Sproul Plaza vào ngày 1 tháng 10 năm 1964 đã khơi nguồn cho Phong trào Tự do Ngôn luận (Free Speech Movement) tại Đại học California, Berkeley. Phong trào này đấu tranh cho quyền tự do ngôn luận và hoạt động chính trị trong khuôn viên trường đại học, trở thành một trong những phong trào sinh viên quan trọng nhất trong lịch sử Hoa Kỳ. Bạn còn muốn biết thêm điều gì về vụ bắt giữ Jack Weinberg tại Sproul Plaza không?
+    """,
     }
 
 def encode_question_gen(question: str, chunk: Any, prompt_key : str = "gpt") -> list[str]:

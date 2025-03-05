@@ -1,30 +1,28 @@
-import json
 import random
+import argparse
+import os
 
-INPUT = "dist/gen1/chat.jsonl"
+def get_args():
+    parser = argparse.ArgumentParser(description='Train test split')
+    parser.add_argument('--input', '-i', type=str, help='Input file', required=True)
+    parser.add_argument('--ratio', '-r', type=float, help='Train ratio', default=0.85)
+    args = parser.parse_args()
+    return args
 
 
-def run(input=INPUT, ratio=0.85):
+def run(input, ratio):
     with open(input, "r") as f:
         lines = f.readlines()
         random.shuffle(lines)
         split = int(len(lines) * ratio)
         train = lines[:split]
         test = lines[split:]
-        with open("train.jsonl", "w") as f:
+        base, ext = os.path.splitext(input)
+        with open(base + "-train" + ext, "w") as f:
             f.writelines(train)
-        with open("test.jsonl", "w") as f:
+        with open(base + "-test" + ext, "w") as f:
             f.writelines(test)
 
-
-def convert_ini(input="dist/gen1/train_test/test_sgu.ini"):
-    with open(input, "r") as f:
-        lines = f.readlines()
-        with open("test_sgu.json", "w") as f:
-            for line in lines:
-                f.write(json.dumps({"question": line.strip()}, ensure_ascii=False) + "\n")
-
-
 if __name__ == "__main__":
-    # run()
-    convert_ini()
+    args = get_args()
+    run(args.input, args.ratio)
